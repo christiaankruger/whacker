@@ -2,7 +2,8 @@
 var connect = require('connect')
     , express = require('express')
     , io = require('socket.io')
-    , port = (process.env.PORT || 8081);
+    , port = (process.env.PORT || 8081)
+    , sys = require('sys');
 
 //Setup Express
 var server = express.createServer();
@@ -15,6 +16,19 @@ server.configure(function(){
     server.use(connect.static(__dirname + '/static'));
     server.use(server.router);
 });
+
+//Setup standard in
+var stdin = process.openStdin();
+stdin.addListener("data", function(d)
+{
+  var data = d.toString().substring(0, d.length-1);
+  if (data == "start") {
+    //Starting game
+    console.log("Starting server.");
+    StartServer();
+  }
+});
+
 
 //setup the errors
 server.error(function(err, req, res, next){
@@ -45,6 +59,11 @@ io.sockets.on('connection', function(socket){
     socket.broadcast.emit('server_message',data);
     socket.emit('server_message',data);
   });
+  socket.on('login', function(data) {
+    console.log(data + " has connected.");
+    socket.emit('login-success');
+    socket.set('name', data);
+  });
   socket.on('disconnect', function(){
     console.log('Client Disconnected.');
   });
@@ -58,9 +77,9 @@ io.sockets.on('connection', function(socket){
 /////// ADD ALL YOUR ROUTES HERE  /////////
 
 server.get('/', function(req,res){
-  res.render('index.jade', {
+  res.render('login.jade', {
     locals : { 
-              title : 'Your Page Title'
+              title : 'Login | Whacker'
              ,description: 'Your Page Description'
              ,author: 'Your Name'
              ,analyticssiteid: 'XXXXXXX' 
@@ -87,3 +106,18 @@ function NotFound(msg){
 
 
 console.log('Listening on http://0.0.0.0:' + port );
+
+///////////////////////////////////////////
+//              Whacker                  //
+///////////////////////////////////////////
+
+function StartServer()
+{
+   io.sockets.clients().forEach(function (socket) {
+
+    var name = socket.get('name', function(err, name) {
+      socket.emit('starting', name);  
+    });
+    
+   });
+}
