@@ -1,3 +1,6 @@
+//Global variables
+var players = 0;
+
 //setup Dependencies
 var connect = require('connect')
     , express = require('express')
@@ -63,6 +66,7 @@ io.sockets.on('connection', function(socket){
     console.log(data + " has connected.");
     socket.emit('login-success');
     socket.set('name', data);
+    players++;
   });
   socket.on('disconnect', function(){
     console.log('Client Disconnected.');
@@ -86,7 +90,6 @@ server.get('/', function(req,res){
             }
   });
 });
-
 
 //A Route for Creating a 500 Error (Useful to keep around)
 server.get('/500', function(req, res){
@@ -115,9 +118,7 @@ function StartServer()
 {
    io.sockets.clients().forEach(function (socket) {
 
-    var name = socket.get('name', function(err, name) {
-      socket.emit('starting', name);  
-    });
     
-   });
+      socket.emit('starting', players);  
+    });
 }

@@ -27,7 +27,8 @@ html.no-js(lang='en')
     .navbar.navbar-top
     //TODO: Nice navbar
 
-    block content
+    .main-container
+      block content
 
     block footer
       footer
@@ -47,4 +48,6 @@ html.no-js(lang='en')
             window.attachEvent('onload',function(){CFInstall.check({mode:'overlay'})})
         script(src='js/jquery.min.js')
         script(src='js/bootstrap.min.js')
+        script(src='js/ejs.js')
+        script(src='js/jquery.console.js')
     
