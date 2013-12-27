@@ -98,6 +98,11 @@ textarea {
    Author's custom styles
    ========================================================================== */
 
+.navbar-top
+{
+    background-color: #000000;
+}
+
 #full-screen-background-image {
     z-index: -999;
     min-height: 100%;
@@ -183,6 +188,7 @@ textarea {
 {
     display: block;
     margin-top: 10px;
+    color: #FFFFFF;
 }
 
 
