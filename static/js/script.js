@@ -11,10 +11,14 @@ var myTurn = true;
 
 
 var inRotten = false;
+var inNuke = false;
+var inSteal = false;
 
 var socket;
 
 var msg_rotten = "Select a block to rot.";
+var msg_nuke = "Select a block to nuke.";
+var msg_steal = "Select a block to steal from.";
 var msg_end = "Type 'cancel' to cancel action.";
 
 $(document).ready(function() {   
@@ -153,13 +157,21 @@ function buildConsole(players)
               {
                 //set all in variables to false
                 inRotten = false;
+                inNuke = false;
+                inSteal = false;
                 msg = "Action cancelled.";
               }
 
               else if(parts[0] == "use") 
               { 
-                var result = processCommand(parts);
-                msg = result;
+                var myTurn = checkTurn();
+                if(!myTurn) {
+                  msg = "It's not your turn.";
+                }
+                else {
+                  var result = processCommand(parts);
+                  msg = result;
+                }
               }
               else if(line == "weapons") {
                 var weapons = showWeapons();
@@ -181,7 +193,9 @@ function buildConsole(players)
 
 function showMessage(msg)
 {
-   $("#message-box").append(msg + "\n");
+   var text = $("#message-box").html();
+   text = msg + "\n" + text;
+   $("#message-box").html(text);
 }
 
 function showWeapons() {
@@ -251,6 +265,28 @@ function processCommand(cmd)
 
         break;
 
+      case "steal":
+        var valid = checkWeapon("steal");
+        if (!valid) {
+          return "You don't have this weapon.";
+        }
+        //Notify server of shield
+        inSteal = true;
+        return [msg_steal, msg_end].join("\n");
+
+        break;
+
+      case "emp":
+        var valid = checkWeapon("emp");
+        if (!valid) {
+          return "You don't have this weapon.";
+        }
+        //Notify server of shield
+        socket.emit('emp', name);
+        return "Eeeeeeeeeeeh.";
+
+        break;
+
       case "convert":
         var valid = checkWeapon("convert");
         if (!valid) {
@@ -270,6 +306,31 @@ function processCommand(cmd)
         inRotten = true;
         return [msg_rotten, msg_end].join("\n");
 
+        break;
+
+      case "nuke":
+        var valid = checkWeapon("nuke");
+        if (!valid) {
+          return "You don't have this weapon.";
+        }
+        inNuke = true;
+        return [msg_nuke, msg_end].join("\n");
+
+        break;
+
+      case "kamikaze":
+        var valid = checkWeapon("kamikaze");
+        if (!valid) {
+          return "You don't have this weapon.";
+        }
+
+        socket.emit('kamikaze', name);
+        
+        return "Carrying out suicide attack. Good luck.";
+
+        break;
+      default:
+        return "Unknown weapon...";
         break;
     }
 }
@@ -291,6 +352,18 @@ function processClick(num)
     if(inRotten) {
       socket.emit('rot', num, name);
       inRotten = false;
+      return;
+    }
+
+    if(inNuke) {
+      socket.emit('nuke', num, name);
+      inNuke = false;
+      return;
+    }
+
+    if(inSteal) {
+      socket.emit('steal', num, name);
+      inSteal = false;
       return;
     }
 
@@ -342,4 +415,24 @@ function checkWeapon(weapon)
         }
     });
     return valid;
+}
+
+function checkTurn()
+{
+    var myTurn = false;
+    $.ajax(
+    {
+        async: false,
+        url: '/turn',
+        success: function(data)
+        {
+            if(data == name) {
+              myTurn = true;
+            }
+        }
+
+
+    });
+
+    return myTurn;
 }

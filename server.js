@@ -127,6 +127,14 @@ io.sockets.on('connection', function(socket){
       removeWeapon("convert", name);
   });
 
+  socket.on('emp', function(name) {
+
+    putOnQueue("emp " + name);
+    removeWeapon("emp", name);
+    processQueue();
+
+  });
+
   socket.on('disconnect', function(){
     console.log('Client Disconnected.');
   });
@@ -138,32 +146,152 @@ io.sockets.on('connection', function(socket){
         return;
       }
 
-      var cmd = "kill " + num + " " + killer;
+      var cmd = "kill " + num + " " + killer + " headshot";
       putOnQueue(cmd);
+      processQueue();
+
+  });
+
+  socket.on('nuke', function(num, killer)
+  {
+      if(turn != killer) {
+        messageOne(killer, "It's not your turn");
+        return;
+      }
+
+      console.log("nuke request received");
+
+      //Count alive in row
+      var alive_row = 1;
+      var alive_col = 1;
+      var index = num;
+      
+      //Move to the start of the row
+      while(index % 6 != 1) {
+        index--;
+      }
+
+      for(var i = index; i < index + 6; i++) {
+        if(grid[i-1].remark != "dead") {
+          alive_row++;
+        }
+      }
+
+      //Count alive in col
+      index = num % 6 == 0? 6 : num % 6;
+      for(var i = index; i < 37; i+=6) {
+        if(grid[i-1].remark != "dead") {
+          alive_col++;
+        }
+      }
+
+      //Let's do the most damage
+      if(alive_row <= alive_col) {
+        //Kill col
+        putOnQueue("killcol " + num + " " + killer + " nuke");
+      } else {
+        //Kill row
+        putOnQueue("killrow " + num + " " + killer + " nuke");
+      }
+
+      removeWeapon("nuke", killer);
       processQueue();
 
   });
 
   socket.on('rot', function(num, killer)
   {
+      if(turn != killer) {
+        messageOne(killer, "It's not your turn");
+        return;
+      }
+
       console.log("rotten request received");
-      var killcmd = "kill " + num + " " + killer;
+      var killcmd = "kill " + num + " " + killer + " rotten";
 
       // kill x
       // colorblack x
       // defer 1 colorred x
       // defer 1 killadj x 1
 
-      putOnQueue("defer 1 killadj " + num + " 1 " + killer);
+      putOnQueue("defer 1 killadj " + num + " 1 " + killer + " rotten");
       putOnQueue("defer 1 colorred " + num);
       putOnQueue("colorblack " + num);
       putOnQueue(killcmd);
+
+      removeWeapon("rotten", killer);
 
       console.log("Queue = " + queue.join(","));
       processQueue();
 
 
   });
+
+  socket.on('steal', function(num, killer)
+  {
+       if(turn != killer) {
+        messageOne(killer, "It's not your turn");
+        return;
+      }
+
+      console.log("Time to steal");
+
+      var owner = grid[num].owner;
+      if(owner == killer) {
+        messageAll("[steal] + " + killer + " tried to steal from themself.");
+      } else {
+
+        for(var i = 0; i < weaponsBank.length; i++) {
+
+          var w = weaponsBank[i];
+          if(w.owner == owner)
+          {
+              if(w.weapons.length == 0) {
+                messageAll("[steal] " + killer + " tried to steal from " + owner + ", but " + owner + " has no weapons.");
+              } else {
+
+                shuffle(w.weapons);
+                var weapon = w.weapons.splice(0, 1);
+                addWeapon(weapon, killer);
+                var msg = "[steal] " + killer + " stole a " + weapon + " from " + owner;
+                messageAll(msg);
+              }
+
+          }
+        }
+      }
+
+      removeWeapon("steal", killer);
+      processQueue();
+
+  });
+
+  socket.on('kamikaze', function(player)
+  {
+
+      if(turn != player) {
+        messageOne(player, "It's not your turn");
+        return;
+      }
+
+      var blocks = [];
+      for(var i = 0; i < grid.length; i++)
+      {
+          if(grid[i].owner == player && grid[i].remark != "dead") {
+            blocks.push(i);
+          }
+      }
+      var index = blocks[Math.floor(Math.random() * blocks.length)];
+
+      putOnQueue("killadj " + (index + 1) + " 8 " + player + " kamikaze");
+      putOnQueue("kill " + (index + 1) + " " + player + " kamikaze");
+
+      removeWeapon("kamikaze", player);
+
+      processQueue();
+
+  });
+
 });
 
 
@@ -210,6 +338,13 @@ server.get('/weapons/:name', function(req, res)
         }
     }
     res.end();
+});
+
+server.get('/turn', function(req, res)
+{
+  console.log("Received turn request");
+  res.write(turn);
+  res.end();
 });
 
 //A Route for Creating a 500 Error (Useful to keep around)
@@ -368,7 +503,7 @@ function populateGrid()
     var blanks = 36 - grid.length;
     for(var i = 0; i < blanks; i++)
     {
-      grid.push({owner: "Blank", remark: "None"});
+      grid.push({owner: "Blank", remark: "blank"});
     }
 
     shuffle(grid);
@@ -424,6 +559,34 @@ function removeWeapon(weapon, name)
     console.log("Removed " + weapon + " from " + name);
 }
 
+function addWeapon(weapon, name)
+{
+    for(var i = 0; i < weaponsBank.length; i++)
+    {
+        var w = weaponsBank[i];
+        if(w.owner == name) {
+           w.weapons.push(weapon);
+        }
+
+    }
+    console.log("Added " + weapon + " to " + name);
+}
+
+function hasWeapon (weapon, name)
+{
+    for(var i = 0; i < weaponsBank.length; i++)
+    {
+        var w = weaponsBank[i];
+        if(w.owner == name) {
+           var weapons = w.weapons;
+           var index = weapons.lastIndexOf(weapon);
+           if (index >= 0) return true;
+           return false;
+        }
+
+    }
+}
+
 ///////////////////////////////////////////
 //       queue system                    //
 ///////////////////////////////////////////
@@ -437,7 +600,10 @@ function removeWeapon(weapon, name)
     defer [x] [command] -> defer command for x turns
     colorred [x]
     colorblack [x]
+    killrow [x] [killer]
+    killcol [x] [killer]
     
+    note: killrow/col gets converted to kill
     note: killer is the name of the killer
     note: killadj gets converted to 8 kills
     note: killrandom gets converted to kill
@@ -450,24 +616,6 @@ function removeWeapon(weapon, name)
    2. calls execute[command]
    3. execute[command] calls processQueue
    4. once queue is empty, next player's turn
-*/
-
-/*
-  Weapons commands
-
-  1. Double shot
-  kill [x]
-  killrandom
-
-  2. Rotten
-  kill[x]
-  defer [1] killadj [x] [1]
-
-  3. Kamikaze
-  kill[x]
-  killadj [x] [8]
-
-
 */
 
 function processQueue()
@@ -489,15 +637,15 @@ function processQueue()
     switch(parts[0]) {
 
       case "kill":
-        executeKill(parts[1], parts[2]);
+        executeKill(parts[1], parts[2], parts[3]);
         break;
 
       case "killrandom":
-        executeKillRandom(parts[1]);
+        executeKillRandom(parts[1], parts[2]);
         break;
 
       case "killadj":
-        executeKillAdj(parts[1], parts[2], parts[3]);
+        executeKillAdj(parts[1], parts[2], parts[3], parts[4]);
         break;
 
       case "defer":
@@ -512,6 +660,18 @@ function processQueue()
 
       case "colorblack":
         executeColorBlack(parts[1]);
+        break;
+
+      case "killcol":
+        executeKillCol(parts[1], parts[2], parts[3]);
+        break;
+
+      case "killrow":
+        executeKillRow(parts[1], parts[2], parts[3]);
+        break;
+
+      case "emp":
+        executeEMP(parts[1]);
         break;
     }
 
@@ -540,14 +700,21 @@ function executeKill (x, killer, msg)
       grid[x-1].remark = "none";
       var newCommand = "killrandom " + owner;
       putOnQueue(newCommand);
-    } else {
+    }
 
+    else {
+
+      if(grid[x-1].remark == "blank") {
+        msg = killer + " shot a blank block.";
+      }
       grid[x-1].remark = "dead";
-
 
       //2. Send message to all
       if(!msg) {
         msg = killer + " shot " + owner;
+      } else {
+        var newMsg = "[" + msg + "] " +  killer + " shot " + owner;
+        msg = newMsg;
       }
       messageAll(msg);
 
@@ -575,7 +742,7 @@ function executeKillRandom(killer, msg)
     }
 
     var index = blocks[Math.floor(Math.random() * blocks.length)];
-    var command = "kill " + (index + 1) + " " + killer;
+    var command = "kill " + (index + 1) + " " + killer + " " + msg;
     putOnQueue(command);
 
     processQueue();
@@ -592,13 +759,44 @@ function executeKillAdj(x, n, killer, msg)
       if(adj.length == 0) break;
       var index = adj.pop();
       if(grid[index-1].remark == "dead") continue;
-      putOnQueue("kill " + index + " " + killer);
+      putOnQueue("kill " + index + " " + killer + " " + msg);
     }
 
     processQueue();
 }
 
+function executeKillRow(x, killer, msg)
+{
+    console.log("Processing killrow");
+    
+    var index = x;
 
+    while(index % 6 != 1) {
+        index--;
+      }
+
+      for(var i = index; i < index + 6; i++) {
+        if(grid[i-1].remark != "dead") {
+          putOnQueue("kill " + i + " " + killer + " " + msg);
+        }
+      }
+
+    processQueue();
+}
+
+function executeKillCol(x, killer, msg)
+{
+    console.log("Processing killcol");  
+    var index = x;
+
+    index = x == 6? 6 : x % 6;
+    for(var i = index; i < 37; i+=6) {
+      if(grid[i-1].remark != "dead") {
+        putOnQueue("kill " + i + " " + killer + " " + msg);
+      }
+    }
+    processQueue();
+}
 
 function executeColorRed(x)
 {
@@ -615,6 +813,26 @@ function executeColorBlack(x)
         socket.emit('color-black', x);  
       });
 
+    processQueue();
+}
+
+function executeEMP(killer, msg)
+{
+    console.log("Eeeehhhhhhh");
+    for(var i = 0; i < player_names.length; i++) {
+        for(var j = 0; j < weapons2.length; j++) {
+          var player = player_names[i];
+          var weapon = weapons2[j];
+          if(player == killer) continue;
+
+          while(hasWeapon(weapon, player)) {
+            removeWeapon(weapon, player);
+          }
+
+        }
+
+      }
+    messageAll("[EMP] " + killer + " used EMP. All level 2 weapons broken.");
     processQueue();
 }
 
