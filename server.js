@@ -5,6 +5,8 @@ var grid = [];
 var queue = [];
 var nextQueue = [];
 var weaponsBank = [];
+var turn = "";
+var turnIndex = -1;
 
 
 var weapons1 = ["shield", "convert"];
@@ -57,6 +59,10 @@ stdin.addListener("data", function(d)
   }
   if(data == "players") {
     console.log(players);
+  }
+
+  if(data == "queue") {
+    console.log(queue.join(", "));
   }
 });
 
@@ -124,7 +130,43 @@ io.sockets.on('connection', function(socket){
   socket.on('disconnect', function(){
     console.log('Client Disconnected.');
   });
+
+  socket.on('kill', function(num, killer)
+  {
+      if(turn != killer) {
+        messageOne(killer, "It's not your turn");
+        return;
+      }
+
+      var cmd = "kill " + num + " " + killer;
+      putOnQueue(cmd);
+      processQueue();
+
+  });
+
+  socket.on('rot', function(num, killer)
+  {
+      console.log("rotten request received");
+      var killcmd = "kill " + num + " " + killer;
+
+      // kill x
+      // colorblack x
+      // defer 1 colorred x
+      // defer 1 killadj x 1
+
+      putOnQueue("defer 1 killadj " + num + " 1 " + killer);
+      putOnQueue("defer 1 colorred " + num);
+      putOnQueue("colorblack " + num);
+      putOnQueue(killcmd);
+
+      console.log("Queue = " + queue.join(","));
+      processQueue();
+
+
+  });
 });
+
+
 
 
 ///////////////////////////////////////////
@@ -211,6 +253,17 @@ function StartServer()
    io.sockets.clients().forEach(function (socket) {
       socket.emit('starting', player_names.join(", "));  
     });
+
+   nextTurn();
+}
+
+function nextTurn()
+{
+    turnIndex++;
+    if(turnIndex == players) turnIndex = 0;
+
+    turn = player_names[turnIndex];
+    messageOne(turn, "It's now your turn.");
 }
 
 
@@ -284,8 +337,20 @@ function convertRandomBlock(name)
 }
 
 function messageAll(message) {
+  console.log("Sending " + message + " to all.");
   io.sockets.clients().forEach(function (socket) {
       socket.emit('message', message);  
+    });
+}
+
+function messageOne(player, message) {
+  console.log("Sending " + message + " to " + player);
+  io.sockets.clients().forEach(function (socket) {
+      socket.get('name', function(err, pname) {
+        if(pname == player) {
+          socket.emit('message', message);  
+        }
+      });
     });
 }
 
@@ -356,7 +421,6 @@ function removeWeapon(weapon, name)
         }
 
     }
-    
     console.log("Removed " + weapon + " from " + name);
 }
 
@@ -369,8 +433,10 @@ function removeWeapon(weapon, name)
 
     kill [x] [killer] [msg] -> kill block x
     killrandom [killer] [msg] -> kill random alive block
-    killadj [x] [killer] [msg] -> kills blocks adjacent to x (not x)
+    killadj [x] [n] [killer] [msg] -> kills up to n blocks adjacent to x (not x)
     defer [x] [command] -> defer command for x turns
+    colorred [x]
+    colorblack [x]
     
     note: killer is the name of the killer
     note: killadj gets converted to 8 kills
@@ -386,10 +452,293 @@ function removeWeapon(weapon, name)
    4. once queue is empty, next player's turn
 */
 
+/*
+  Weapons commands
 
+  1. Double shot
+  kill [x]
+  killrandom
+
+  2. Rotten
+  kill[x]
+  defer [1] killadj [x] [1]
+
+  3. Kamikaze
+  kill[x]
+  killadj [x] [8]
+
+
+*/
+
+function processQueue()
+{
+    if(queue.length == 0) {
+      
+      //Bring in next queue and execute.
+      queue = nextQueue;
+      nextQueue = [];
+      nextTurn();
+      return;
+    }
+
+    console.log("Processing Queue");
+    var cmd = queue.splice(0, 1).toString();
+
+    console.log("Command = " + cmd);
+    var parts = cmd.split(" ");
+    switch(parts[0]) {
+
+      case "kill":
+        executeKill(parts[1], parts[2]);
+        break;
+
+      case "killrandom":
+        executeKillRandom(parts[1]);
+        break;
+
+      case "killadj":
+        executeKillAdj(parts[1], parts[2], parts[3]);
+        break;
+
+      case "defer":
+        parts.splice(0, 1);
+        var n = parts.splice(0, 1);
+        executeDefer(n, parts.join(" "));
+        break;
+
+      case "colorred":
+        executeColorRed(parts[1]);
+        break;
+
+      case "colorblack":
+        executeColorBlack(parts[1]);
+        break;
+    }
+
+
+}
+
+//x is one based!
 function executeKill (x, killer, msg)
 {
     //kill [x] [msg]
     //ex 'kill 4 "A killed B"'
+
+    var owner = grid[x-1].owner;
+
+    //1. Update remark
+    if(grid[x-1].remark == "shield") {
+      var toSend = owner + " has been saved by their shield";
+      messageAll(toSend);
+      messageOne(owner, "Your shield is broken.");
+      grid[x-1].remark = "none";
+
+    } else if (grid[x-1].remark == "deflect") {
+      var toSend = owner + " deflected the attack";
+      messageAll(toSend);
+      messageOne(owner, "Your block is no longer deflectorized.");
+      grid[x-1].remark = "none";
+      var newCommand = "killrandom " + owner;
+      putOnQueue(newCommand);
+    } else {
+
+      grid[x-1].remark = "dead";
+
+
+      //2. Send message to all
+      if(!msg) {
+        msg = killer + " shot " + owner;
+      }
+      messageAll(msg);
+
+      //3. Send notifications
+      io.sockets.clients().forEach(function (socket) {
+        socket.emit('killed', x);  
+      });
+    }
+
+    //4. Return to queue
+    processQueue();
+}
+
+//Kills random non-dead block
+//Convert killrandom to kill
+function executeKillRandom(killer, msg)
+{
+
+    var blocks = [];
+    for(var i = 0; i < grid.length; i++)
+    {
+        if(grid[i].remark != "dead") {
+          blocks.push(i);
+        }
+    }
+
+    var index = blocks[Math.floor(Math.random() * blocks.length)];
+    var command = "kill " + (index + 1) + " " + killer;
+    putOnQueue(command);
+
+    processQueue();
+
+}
+
+function executeKillAdj(x, n, killer, msg)
+{
+    console.log("Processing killadj");
+    var adj = getAdj(x);
+    shuffle(adj);
+    console.log("adj = " + adj.join(", "));
+    for (var i = 0; i < n; i++) {
+      if(adj.length == 0) break;
+      var index = adj.pop();
+      if(grid[index-1].remark == "dead") continue;
+      putOnQueue("kill " + index + " " + killer);
+    }
+
+    processQueue();
+}
+
+
+
+function executeColorRed(x)
+{
+    io.sockets.clients().forEach(function (socket) {
+        socket.emit('color-red', x);  
+      });
+
+    processQueue();
+}
+
+function executeColorBlack(x)
+{
+    io.sockets.clients().forEach(function (socket) {
+        socket.emit('color-black', x);  
+      });
+
+    processQueue();
+}
+
+function executeDefer(n, command)
+{
+
+  console.log("Deferring " + command + " with " + n + " rounds");
+  if(n == 1) {
+    addToNextQueue(command);
+    console.log(command + " added to nextQueue");
+  }
+  else {
+    n--;
+    var cmd = "defer " + n + " " + command;
+    addToNextQueue(cmd);
+  }
+  processQueue();
+}
+
+function putOnQueue(command) 
+{
+  queue.reverse();
+  queue.push(command.toString());
+  queue.reverse();
+}
+
+function addToQueue(command)
+{
+    queue.push(command);
+}
+
+function addToNextQueue(command)
+{
+  nextQueue.push(command.toString());
+}
+
+function getAdj(xn)
+{
+    var n = parseInt(xn);
+    var coords = [];
+    //For n == 1
+    if(n == 1) {
+      coords.push(2);
+      coords.push(7);
+      coords.push(8);
+      return coords;
+    }
+
+    if(n == 6) {
+      coords.push(5);
+      coords.push(11);
+      coords.push(12);
+      return coords;
+    }
+
+    if(n == 31) {
+      coords.push(25);
+      coords.push(26);
+      coords.push(32);
+      return coords;
+    }
+
+    if(n == 36) {
+      coords.push(29);
+      coords.push(30);
+      coords.push(35);
+      return coords;
+
+    }
+
+
+    //Top row
+    if(n <= 6)
+    {
+        coords.push(n-1);
+        coords.push(n+1);
+        coords.push(n+5);
+        coords.push(n+6);
+        coords.push(n+7);
+        return coords;
+    }
+
+    //Left
+    if(n % 6 == 1) {
+        coords.push(n-6);
+        coords.push(n-5);
+        coords.push(n+1);
+        coords.push(n+6);
+        coords.push(n+7);
+        return coords;
+    }
+
+    //Right
+    if (n % 6 == 0) {
+        coords.push(n-6);
+        coords.push(n+5);
+        coords.push(n-1);
+        coords.push(n+6);
+        coords.push(n-7);
+        return coords;      
+    }
+
+    //Bottom
+    if(n >= 31 && n <= 36) {
+
+        coords.push(n+1);
+        coords.push(n-5);
+        coords.push(n-1);
+        coords.push(n-6);
+        coords.push(n-7);
+        return coords;   
+
+    }
+
+    //General
+
+    coords.push(n-7);
+    coords.push(n-6);
+    coords.push(n-5);
+    coords.push(n-1);
+    coords.push(n+1);
+    coords.push(n+5);
+    coords.push(n+6);
+    coords.push(n+7);
+    return coords;
 
 }

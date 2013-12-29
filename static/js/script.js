@@ -10,11 +10,11 @@ var queries = 3;
 var myTurn = true;
 
 
-var inQuery = false;
+var inRotten = false;
 
 var socket;
 
-var msg_query = "Select a block to query.";
+var msg_rotten = "Select a block to rot.";
 var msg_end = "Type 'cancel' to cancel action.";
 
 $(document).ready(function() {   
@@ -62,6 +62,31 @@ $(document).ready(function() {
     setButtonText(index, index);
     showMessage("You lost a block, too bad.");
   });
+
+  socket.on('color-red', function(index)
+  {
+    $("#button" + index).removeClass("btn-success");
+    $("#button" + index).removeClass("btn-primary");
+    $("#button" + index).removeClass("btn-rotten");
+    $("#button" + index).addClass("btn-danger");
+  });
+
+  socket.on('color-black', function(index)
+  {
+    $("#button" + index).removeClass("btn-success");
+    $("#button" + index).removeClass("btn-primary");
+    $("#button" + index).removeClass("btn-danger");
+    $("#button" + index).addClass("btn-rotten");
+  });
+
+  socket.on('killed', function(index)
+  {
+    //x is one based
+    $("#button" + index).removeClass("btn-success");
+    $("#button" + index).removeClass("btn-primary");
+    $("#button" + index).addClass("btn-danger");
+    setButtonText(index, "X");  
+  })
 
   socket.on('message', function(msg)
   {
@@ -127,7 +152,7 @@ function buildConsole(players)
               else if(line == "cancel")
               {
                 //set all in variables to false
-                inQuery = false;
+                inRotten = false;
                 msg = "Action cancelled.";
               }
 
@@ -236,6 +261,16 @@ function processCommand(cmd)
         return "You have a new block.";
 
         break;
+
+      case "rotten":
+        var valid = checkWeapon("rotten");
+        if (!valid) {
+          return "You don't have this weapon.";
+        }
+        inRotten = true;
+        return [msg_rotten, msg_end].join("\n");
+
+        break;
     }
 }
 
@@ -246,7 +281,21 @@ function setButtonText(num, data)
 
 function processClick(num)
 {
+    var text = $("#button" + num +" .coord").html().trim();
+    if(text == "X") {
+      alert("This block is already dead.");
+      return;
+    }
 
+    //check if weapon is active
+    if(inRotten) {
+      socket.emit('rot', num, name);
+      inRotten = false;
+      return;
+    }
+
+    //else
+    socket.emit('kill', num, name);
 }
 
 function processQuery(num)
