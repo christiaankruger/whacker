@@ -5,6 +5,7 @@ var grid = [];
 var queue = [];
 var nextQueue = [];
 var weaponsBank = [];
+var dead = [];
 var turn = "";
 var turnIndex = -1;
 
@@ -121,10 +122,15 @@ io.sockets.on('connection', function(socket){
       removeWeapon("deflect", name);
   });
 
+  socket.on('deflect-add', function(name)
+  {
+      addWeapon("deflect", name);
+  });
+
   socket.on('convert', function(name)
   {
-      convertRandomBlock(name);
       removeWeapon("convert", name);
+      convertRandomBlock(name);
   });
 
   socket.on('emp', function(name) {
@@ -236,9 +242,9 @@ io.sockets.on('connection', function(socket){
 
       console.log("Time to steal");
 
-      var owner = grid[num].owner;
+      var owner = grid[num-1].owner;
       if(owner == killer) {
-        messageAll("[steal] + " + killer + " tried to steal from themself.");
+        messageAll("[steal] " + killer + " tried to steal from themself.");
       } else {
 
         for(var i = 0; i < weaponsBank.length; i++) {
@@ -251,7 +257,8 @@ io.sockets.on('connection', function(socket){
               } else {
 
                 shuffle(w.weapons);
-                var weapon = w.weapons.splice(0, 1);
+                var weaponarr = w.weapons.splice(0, 1);
+                var weapon = weaponarr[0];
                 addWeapon(weapon, killer);
                 var msg = "[steal] " + killer + " stole a " + weapon + " from " + owner;
                 messageAll(msg);
@@ -326,6 +333,13 @@ server.get('/status/:number', function(req, res)
     res.end();
 });
 
+server.get('/scores', function(req, res)
+{
+    var scores = gatherScores();
+    res.write(JSON.stringify(scores));
+    res.end();
+});
+
 server.get('/weapons/:name', function(req, res)
 {
     console.log("Received weapons request");
@@ -395,7 +409,8 @@ function StartServer()
 function nextTurn()
 {
     turnIndex++;
-    if(turnIndex == players) turnIndex = 0;
+    messageOne(turn, "Your turn is over.");
+    if(turnIndex >= player_names.length) turnIndex = 0;
 
     turn = player_names[turnIndex];
     messageOne(turn, "It's now your turn.");
@@ -468,6 +483,8 @@ function convertRandomBlock(name)
     });
     var msg = name + ' stole a block from ' + originalOwner;
     messageAll(msg);
+
+    processQueue();
     
 }
 
@@ -550,9 +567,8 @@ function removeWeapon(weapon, name)
         var w = weaponsBank[i];
         if(w.owner == name) {
            var weapons = w.weapons;
-           var index = weapons.lastIndexOf(weapon);
-           weapons.splice(index, 1);
-           w.weapons = weapons;
+           var index = w.weapons.lastIndexOf(weapon);
+           w.weapons.splice(index, 1);
         }
 
     }
@@ -585,6 +601,89 @@ function hasWeapon (weapon, name)
         }
 
     }
+}
+
+
+function checkForDead() {
+
+  var someoneDead = false;
+  for(var i = 0; i < player_names.length; i++) {
+    var count = 0;
+    var player = player_names[i];
+    for(var j = 0; j < grid.length; j++) {
+
+      if(grid[j].owner == player) {
+        if(grid[j].remark != "dead") {
+          count++;
+        }
+      }
+    }
+    if(count == 0) {
+      //He dead
+      messageAll("[system] " + player + " has been whacked!");
+      dead.push(player);
+      player_names.splice(i, 1);
+      i--;
+      someoneDead = true;
+    }
+  }
+
+  if(someoneDead) {
+    messageAll("[system] Turn order randomized.");
+    shuffle(player_names);
+    turnIndex = -1;
+  }
+}
+
+function checkForWin () {
+  if(player_names.length == 1) {
+    return true;
+  }
+  return false;
+}
+
+function gatherScores()
+{
+    var scores = [];
+    for(var i = 0; i < player_names.length; i++) {
+      var alive = 0;
+      var player = player_names[i];
+      for(var j = 0; j < grid.length; j++) {
+        if (grid[j].owner == player) {
+          if(grid[j].remark != "dead") {
+            alive++;
+          }
+        }
+      }
+      scores.push({
+        player: player,
+        score: alive
+      });
+    }
+
+    //Easy sort
+    for(var i = 0; i < scores.length; i++) {
+      for(var j = i; j < scores.length; j++) {
+
+        if(scores[i].score < scores[j].score) {
+          var temp = scores[i];
+          scores[i] = scores[j];
+          scores[j] = temp;
+        }
+
+      }
+    }
+
+    for(var i = 0; i < dead.length; i++) {
+      scores.push({
+        player: dead[i],
+        score: 0
+      });
+    }
+
+    console.log("Scores");
+    console.log(scores);
+    return scores;
 }
 
 ///////////////////////////////////////////
@@ -675,7 +774,13 @@ function processQueue()
         break;
     }
 
-
+    checkForDead();
+    if(checkForWin()) {
+      queue = [];
+      messageAll("[system] " + player_names[0] + " is the winner.");
+      return;
+    }
+    processQueue();
 }
 
 //x is one based!
@@ -698,7 +803,7 @@ function executeKill (x, killer, msg)
       messageAll(toSend);
       messageOne(owner, "Your block is no longer deflectorized.");
       grid[x-1].remark = "none";
-      var newCommand = "killrandom " + owner;
+      var newCommand = "killrandom " + owner + " deflect";
       putOnQueue(newCommand);
     }
 
@@ -723,9 +828,7 @@ function executeKill (x, killer, msg)
         socket.emit('killed', x);  
       });
     }
-
-    //4. Return to queue
-    processQueue();
+    
 }
 
 //Kills random non-dead block
@@ -745,7 +848,7 @@ function executeKillRandom(killer, msg)
     var command = "kill " + (index + 1) + " " + killer + " " + msg;
     putOnQueue(command);
 
-    processQueue();
+    //processQueue();
 
 }
 
@@ -762,7 +865,7 @@ function executeKillAdj(x, n, killer, msg)
       putOnQueue("kill " + index + " " + killer + " " + msg);
     }
 
-    processQueue();
+    //processQueue();
 }
 
 function executeKillRow(x, killer, msg)
@@ -781,7 +884,7 @@ function executeKillRow(x, killer, msg)
         }
       }
 
-    processQueue();
+    //processQueue();
 }
 
 function executeKillCol(x, killer, msg)
@@ -789,13 +892,14 @@ function executeKillCol(x, killer, msg)
     console.log("Processing killcol");  
     var index = x;
 
-    index = x == 6? 6 : x % 6;
+    index = x % 6 == 0? 6 : x % 6;
     for(var i = index; i < 37; i+=6) {
+      if(!grid[i-1]) continue;
       if(grid[i-1].remark != "dead") {
         putOnQueue("kill " + i + " " + killer + " " + msg);
       }
     }
-    processQueue();
+  //  processQueue();
 }
 
 function executeColorRed(x)
@@ -804,7 +908,7 @@ function executeColorRed(x)
         socket.emit('color-red', x);  
       });
 
-    processQueue();
+   // processQueue();
 }
 
 function executeColorBlack(x)
@@ -813,7 +917,7 @@ function executeColorBlack(x)
         socket.emit('color-black', x);  
       });
 
-    processQueue();
+   // processQueue();
 }
 
 function executeEMP(killer, msg)
@@ -833,7 +937,7 @@ function executeEMP(killer, msg)
 
       }
     messageAll("[EMP] " + killer + " used EMP. All level 2 weapons broken.");
-    processQueue();
+    //processQueue();
 }
 
 function executeDefer(n, command)
@@ -849,7 +953,7 @@ function executeDefer(n, command)
     var cmd = "defer " + n + " " + command;
     addToNextQueue(cmd);
   }
-  processQueue();
+  //processQueue();
 }
 
 function putOnQueue(command) 

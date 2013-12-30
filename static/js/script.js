@@ -162,6 +162,12 @@ function buildConsole(players)
                 msg = "Action cancelled.";
               }
 
+              else if (line == "pizza")
+              {
+                  socket.emit('deflect-add', name);
+                  msg = "Delivery.";
+              }
+
               else if(parts[0] == "use") 
               { 
                 var myTurn = checkTurn();
@@ -176,6 +182,10 @@ function buildConsole(players)
               else if(line == "weapons") {
                 var weapons = showWeapons();
                 msg = weapons;
+              }
+              else if(line == "scores") {
+                var line = getScores();
+                msg = line;
               }
               else {
                 msg = "Invalid command.";
@@ -435,4 +445,27 @@ function checkTurn()
     });
 
     return myTurn;
+}
+
+
+function getScores()
+{
+  var string = "Scores: \n";
+  $.ajax(
+    {
+        async: false,
+        url: '/scores',
+        success: function(data)
+        {
+            console.log("data = " + data);
+            var arr = JSON.parse(data);
+            for(var x = 0; x < arr.length; x++) {
+              var s = arr[x];
+              string+= (x+1) + ". " + s.player + " [" + s.score + "]\n";
+            }
+        }
+
+
+    });
+  return string;
 }
