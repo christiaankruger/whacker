@@ -531,33 +531,43 @@ function assignWeapons()
 {
 
   console.log("Assigning weapons");
-  player_names.forEach(function(player)
-  {
-      console.log("Player = " + player);
-      var weapons = [];
-      // Level 1
-      weapons.push(weapons1[0]);
-      weapons.push(weapons1[1]);
+  var weapons = [];
+  for (var i = 0; i < player_names.length; i++) {
 
-      //Level 2
-      for(var i = 0; i < 2; i++)
-      {
-        weapons.push(weapons2[Math.floor(Math.random() * weapons2.length)]);
-      }
+    //
+    weapons.push("rotten");
+    weapons.push("steal");
+    weapons.push("deflect");
+    weapons.push("rotten"); //Soon to be replaced by 4th weapon
+  }
 
-      //Level 3
-      for(var i = 0; i < 2; i++)
-      {
-        weapons.push(weapons3[Math.floor(Math.random() * weapons3.length)]);
-      }
+  weapons.push("nuke");
+  weapons.push("emp");
+  weapons.push("kamikaze");
 
-      console.log("Weapons = " + weapons);
+  shuffle(weapons);
 
-      weaponsBank.push({
+  for(var i = 0; i < player_names.length; i++) {
+
+    var player = player_names[i];
+    var my_weapons = [];
+    my_weapons.push("shield");
+    my_weapons.push("convert");
+    var my_good_weapons = weapons.splice(0, 4);
+    for(var k = 0; k < my_good_weapons.length; k++) {
+      var w = my_good_weapons[k];
+      my_weapons.push(w);
+    }
+
+    weaponsBank.push(
+    {
         owner: player,
-        weapons: weapons
-      });
-  });
+        weapons: my_weapons
+    });
+
+  }
+
+
 }
 
 function removeWeapon(weapon, name)
@@ -810,7 +820,7 @@ function executeKill (x, killer, msg)
     else {
 
       if(grid[x-1].remark == "blank") {
-        msg = killer + " shot a blank block.";
+        msg = "blank";
       }
       grid[x-1].remark = "dead";
 

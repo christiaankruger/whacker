@@ -133,7 +133,10 @@ function fillBlocks(n)
 function buildConsole(players)
 {
   
-  var welcome = "Welcome to Whacker, " + name + ".\n Your opponents are: " + players + ".";
+  var welcome = "Welcome to Whacker, " + name + ".\n I am the Whacker Console.\n";
+  welcome += "The players are: " + players + ".\n";
+  welcome += "Type 'weapons' to see your weapons and 'scores' to see the scores.\n";
+  welcome += "Type 'clear' to clear the console.";
 
    var console = $('<div class="console1">');
    $('#console-container').append(console);
